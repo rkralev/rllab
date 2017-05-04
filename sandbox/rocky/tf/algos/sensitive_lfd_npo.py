@@ -1,43 +1,41 @@
-from rllab.misc import logger
 from rllab.misc import ext
 from rllab.misc.overrides import overrides
-from sandbox.rocky.tf.algos.batch_sensitive_polopt import BatchSensitivePolopt
+import rllab.misc.logger as logger
+from sandbox.rocky.tf.algos.batch_sensitive_lfd_polopt import BatchSensitiveLfD_Polopt
+from sandbox.rocky.tf.optimizers.penalty_lbfgs_optimizer import PenaltyLbfgsOptimizer
 from sandbox.rocky.tf.optimizers.first_order_optimizer import FirstOrderOptimizer
 from sandbox.rocky.tf.misc import tensor_utils
-from rllab.core.serializable import Serializable
 import tensorflow as tf
 
 
-class SensitiveVPG(BatchSensitivePolopt, Serializable):
+class SensitiveLfD_NPO(BatchSensitiveLfD_Polopt):
     """
-    Vanilla Policy Gradient.
+    Natural Policy Optimization.
     """
 
     def __init__(
             self,
-            env,
-            policy,
-            baseline,
             optimizer=None,
             optimizer_args=None,
+            step_size=0.01,
             use_sensitive=True,
             **kwargs):
-        Serializable.quick_init(self, locals())
+        assert optimizer is not None  # only for use with Sensitive TRPO
         if optimizer is None:
+            if optimizer_args is None:
+                optimizer_args = dict()
+            optimizer = PenaltyLbfgsOptimizer(**optimizer_args)
+        if not use_sensitive:
             default_args = dict(
                 batch_size=None,
                 max_epochs=1,
             )
-            if optimizer_args is None:
-                optimizer_args = default_args
-            else:
-                optimizer_args = dict(default_args, **optimizer_args)
-            optimizer = FirstOrderOptimizer(**optimizer_args)
+            optimizer = FirstOrderOptimizer(**default_args)
         self.optimizer = optimizer
-        self.opt_info = None
+        self.step_size = step_size
         self.use_sensitive = use_sensitive
-        super(SensitiveVPG, self).__init__(env=env, policy=policy, baseline=baseline, use_sensitive=use_sensitive, **kwargs)
-
+        self.kl_constrain_step = -1  # needs to be 0 or -1 (original pol params, or new pol params)
+        super(SensitiveLfD_NPO, self).__init__(**kwargs)
 
     def make_vars(self, stepnum='0'):
         # lists over the meta_batch_size
@@ -57,13 +55,11 @@ class SensitiveVPG(BatchSensitivePolopt, Serializable):
             ))
         return obs_vars, action_vars, adv_vars
 
-
     @overrides
     def init_opt(self):
-        # TODO Commented out all KL stuff for now, since it is only used for logging
-        # To see how it can be turned on, see sensitive_npo.py
         is_recurrent = int(self.policy.recurrent)
-        assert not is_recurrent # not supported right now.
+        assert not is_recurrent  # not supported
+
         dist = self.policy.distribution
 
         old_dist_info_vars, old_dist_info_vars_list = [], []
@@ -83,11 +79,15 @@ class SensitiveVPG(BatchSensitivePolopt, Serializable):
             surr_objs = []
 
             cur_params = new_params
-            new_params = []
+            new_params = []  # if there are several grad_updates the new_params are overwritten
+            kls = []
 
             for i in range(self.meta_batch_size):
                 if j == 0:
                     dist_info_vars, params = self.policy.dist_info_sym(obs_vars[i], state_info_vars, all_params=self.policy.all_params)
+                    if self.kl_constrain_step == 0:
+                        kl = dist.kl_sym(old_dist_info_vars[i], dist_info_vars)
+                        kls.append(kl)
                 else:
                     dist_info_vars, params = self.policy.updated_dist_info_sym(i, all_surr_objs[-1][i], obs_vars[i], params_dict=cur_params[i])
 
@@ -106,57 +106,54 @@ class SensitiveVPG(BatchSensitivePolopt, Serializable):
 
             all_surr_objs.append(surr_objs)
 
-
         obs_vars, action_vars, adv_vars = self.make_vars('test')
         surr_objs = []
-        kls = []
         for i in range(self.meta_batch_size):
             dist_info_vars, _ = self.policy.updated_dist_info_sym(i, all_surr_objs[-1][i], obs_vars[i], params_dict=new_params[i])
-            logli = dist.log_likelihood_sym(action_vars[i], dist_info_vars)
-            surr_objs.append(- tf.reduce_mean(logli * adv_vars[i]))
 
-            kls.append(dist.kl_sym(old_dist_info_vars[i], dist_info_vars))
-
-        surr_obj = tf.reduce_mean(tf.stack(surr_objs, 0))
-        mean_kl = tf.reduce_mean(tf.concat(kls, 0))
-        max_kl = tf.reduce_max(tf.concat(kls, 0))
-        input_list += obs_vars + action_vars + adv_vars
+            if self.kl_constrain_step == -1:  # if we only care about the kl of the last step, the last item in kls will be the overall
+                kl = dist.kl_sym(old_dist_info_vars[i], dist_info_vars)
+                kls.append(kl)
+            lr = dist.likelihood_ratio_sym(action_vars[i], old_dist_info_vars[i], dist_info_vars)
+            surr_objs.append(- tf.reduce_mean(lr*adv_vars[i]))
 
         if self.use_sensitive:
-            self.optimizer.update_opt(loss=surr_obj, target=self.policy, inputs=input_list)
-        else:  # baseline method of just training initial policy
-            self.optimizer.update_opt(loss=tf.reduce_mean(tf.stack(all_surr_objs[0],0)), target=self.policy, inputs=init_input_list)
+            surr_obj = tf.reduce_mean(tf.stack(surr_objs, 0))  # mean over meta_batch_size (the diff tasks)
+            input_list += obs_vars + action_vars + adv_vars + old_dist_info_vars_list
+        else:
+            surr_obj = tf.reduce_mean(tf.stack(all_surr_objs[0], 0)) # if not meta, just use the first surr_obj
+            input_list = init_input_list
 
-        f_kl = tensor_utils.compile_function(
-            inputs=input_list + old_dist_info_vars_list,
-            outputs=[mean_kl, max_kl],
-        )
-        self.opt_info = dict(
-            f_kl=f_kl,
-        )
+        if self.use_sensitive:
+            mean_kl = tf.reduce_mean(tf.concat(kls, 0))  ##CF shouldn't this have the option of self.kl_constrain_step == -1?
+            max_kl = tf.reduce_max(tf.concat(kls, 0))
 
-        #f_kl = tensor_utils.compile_function(
-        #    inputs=input_list + old_dist_info_vars_list,
-        #    outputs=[mean_kl, max_kl],
-        #)
-        #self.opt_info = dict(
-        #    f_kl=f_kl,
-        #)
-
+            self.optimizer.update_opt(
+                loss=surr_obj,
+                target=self.policy,
+                leq_constraint=(mean_kl, self.step_size),
+                inputs=input_list,
+                constraint_name="mean_kl"
+            )
+        else:
+            self.optimizer.update_opt(
+                loss=surr_obj,
+                target=self.policy,
+                inputs=input_list,
+            )
+        return dict()
 
     @overrides
     def optimize_policy(self, itr, all_samples_data):
-        logger.log("optimizing policy")
-        assert len(all_samples_data) == self.num_grad_updates + 1
+        assert len(all_samples_data) == self.num_grad_updates + 1  # we collected the rollouts to compute the grads and then the test!
 
         if not self.use_sensitive:
             all_samples_data = [all_samples_data[0]]
 
         input_list = []
-        for step in range(len(all_samples_data)):
+        for step in range(len(all_samples_data)):  # these are the gradient steps
             obs_list, action_list, adv_list = [], [], []
             for i in range(self.meta_batch_size):
-
 
                 inputs = ext.extract(
                     all_samples_data[step][i],
@@ -165,25 +162,35 @@ class SensitiveVPG(BatchSensitivePolopt, Serializable):
                 obs_list.append(inputs[0])
                 action_list.append(inputs[1])
                 adv_list.append(inputs[2])
-            input_list += obs_list + action_list + adv_list
+            input_list += obs_list + action_list + adv_list  # [ [obs_0], [act_0], [adv_0], [obs_1], ... ]
 
-            if step == 0:
+            if step == 0:  ##CF not used?
                 init_inputs = input_list
 
-        loss_before = self.optimizer.loss(input_list)
-        self.optimizer.optimize(input_list)
-        loss_after = self.optimizer.loss(input_list)
-        logger.record_tabular("LossBefore", loss_before)
-        logger.record_tabular("LossAfter", loss_after)
-
-        dist_info_list = []
-        for i in range(self.meta_batch_size):
-            agent_infos = all_samples_data[-1][i]['agent_infos']
-            dist_info_list += [agent_infos[k] for k in self.policy.distribution.dist_info_keys]
         if self.use_sensitive:
-            mean_kl, max_kl = self.opt_info['f_kl'](*(list(input_list) + dist_info_list))
+            dist_info_list = []
+            for i in range(self.meta_batch_size):
+                agent_infos = all_samples_data[self.kl_constrain_step][i]['agent_infos']
+                dist_info_list += [agent_infos[k] for k in self.policy.distribution.dist_info_keys]
+            input_list += tuple(dist_info_list)
+            logger.log("Computing KL before")
+            mean_kl_before = self.optimizer.constraint_val(input_list)
+
+        logger.log("Computing loss before")
+        loss_before = self.optimizer.loss(input_list)
+        logger.log("Optimizing")
+        self.optimizer.optimize(input_list)
+        logger.log("Computing loss after")
+        loss_after = self.optimizer.loss(input_list)
+        if self.use_sensitive:
+            logger.log("Computing KL after")
+            mean_kl = self.optimizer.constraint_val(input_list)
+            logger.record_tabular('MeanKLBefore', mean_kl_before)  # this now won't be 0!
             logger.record_tabular('MeanKL', mean_kl)
-            logger.record_tabular('MaxKL', max_kl)
+        logger.record_tabular('LossBefore', loss_before)
+        logger.record_tabular('LossAfter', loss_after)
+        logger.record_tabular('dLoss', loss_before - loss_after)
+        return dict()
 
     @overrides
     def get_itr_snapshot(self, itr, samples_data):

@@ -8,7 +8,7 @@ from rllab.core.serializable import Serializable
 import tensorflow as tf
 
 
-class SensitiveVPG(BatchSensitivePolopt, Serializable):
+class SensitiveLfD_VPG(BatchSensitivePolopt, Serializable):
     """
     Vanilla Policy Gradient.
     """
@@ -36,7 +36,7 @@ class SensitiveVPG(BatchSensitivePolopt, Serializable):
         self.optimizer = optimizer
         self.opt_info = None
         self.use_sensitive = use_sensitive
-        super(SensitiveVPG, self).__init__(env=env, policy=policy, baseline=baseline, use_sensitive=use_sensitive, **kwargs)
+        super(SensitiveLfD_VPG, self).__init__(env=env, policy=policy, baseline=baseline, use_sensitive=use_sensitive, **kwargs)
 
 
     def make_vars(self, stepnum='0'):

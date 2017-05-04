@@ -39,11 +39,17 @@ class Sampler(object):
 
 
 class BaseSampler(Sampler):
-    def __init__(self, algo):
+    def __init__(self, algo, policy=None, fit_baseline=True):
         """
         :type algo: BatchPolopt
         """
         self.algo = algo
+        self.fit_baseline = fit_baseline
+        if policy is None:
+            self.policy = self.algo.policy
+        else:
+            self.policy = policy
+            self.fit_baseline = False
 
     def process_samples(self, itr, paths, prefix='', log=True):
         baselines = []
@@ -51,20 +57,26 @@ class BaseSampler(Sampler):
 
         for idx, path in enumerate(paths):
             path["returns"] = special.discount_cumsum(path["rewards"], self.algo.discount)
-        if log:
-            logger.log("fitting baseline...")
-        if hasattr(self.algo.baseline, 'fit_with_samples'):
-            self.algo.baseline.fit_with_samples(paths, samples_data)
-        else:
-            self.algo.baseline.fit(paths, log=log)
-        if log:
-            logger.log("fitted")
+
+        if self.fit_baseline:
+            if log:
+                logger.log("fitting baseline...")
+            if hasattr(self.algo.baseline, 'fit_with_samples'):
+                self.algo.baseline.fit_with_samples(paths, samples_data)  ##CF??
+            else:
+                self.algo.baseline.fit(paths, log=log)
+            if log:
+                logger.log("fitted")
 
 
-        if hasattr(self.algo.baseline, "predict_n"):
-            all_path_baselines = self.algo.baseline.predict_n(paths)
+            if hasattr(self.algo.baseline, "predict_n"):
+                all_path_baselines = self.algo.baseline.predict_n(paths)
+            else:
+                all_path_baselines = [self.algo.baseline.predict(path) for path in paths]
         else:
-            all_path_baselines = [self.algo.baseline.predict(path) for path in paths]
+            if log:
+                logger.log("using zero baseline")
+            all_path_baselines = [np.zeros_like(path['rewards']) for path in paths]
 
         for idx, path in enumerate(paths):
             path_baselines = np.append(all_path_baselines[idx], 0)
@@ -81,7 +93,7 @@ class BaseSampler(Sampler):
             np.concatenate(returns)
         )
 
-        if not self.algo.policy.recurrent:
+        if not self.policy.recurrent:
             observations = tensor_utils.concat_tensor_list([path["observations"] for path in paths])
             actions = tensor_utils.concat_tensor_list([path["actions"] for path in paths])
             rewards = tensor_utils.concat_tensor_list([path["rewards"] for path in paths])
@@ -101,7 +113,7 @@ class BaseSampler(Sampler):
 
             undiscounted_returns = [sum(path["rewards"]) for path in paths]
 
-            ent = np.mean(self.algo.policy.distribution.entropy(agent_infos))
+            ent = np.mean(self.policy.distribution.entropy(agent_infos))
 
             samples_data = dict(
                 observations=observations,
@@ -157,7 +169,7 @@ class BaseSampler(Sampler):
 
             undiscounted_returns = [sum(path["rewards"]) for path in paths]
 
-            ent = np.sum(self.algo.policy.distribution.entropy(agent_infos) * valids) / np.sum(valids)
+            ent = np.sum(self.policy.distribution.entropy(agent_infos) * valids) / np.sum(valids)
 
             samples_data = dict(
                 observations=obs,

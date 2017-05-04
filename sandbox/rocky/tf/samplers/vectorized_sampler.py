@@ -13,19 +13,33 @@ import itertools
 
 class VectorizedSampler(BaseSampler):
 
-    def __init__(self, algo, n_envs=None):
-        super(VectorizedSampler, self).__init__(algo)
+    def __init__(self, algo, policy=None, n_envs=None):  # allows to define another policy (for demos)!
+        """
+        :param policy: allows to define a sampling policy. uses 0 baseline!
+        :param n_envs: 
+        """
+        super(VectorizedSampler, self).__init__(algo, policy=policy)
         self.n_envs = n_envs
 
+    def process_samples(self, *args, **kwargs):
+        if self.policy is not self.algo.policy:
+            raise NotImplementedError("The ran policy was different: you will be fitting the wrong baseline!")
+        else:
+            return super(VectorizedSampler, self).process_samples(*args, **kwargs)
+
     def start_worker(self):
+        print('starting worker for n_env=', self.n_envs)
         n_envs = self.n_envs
         if n_envs is None:
             n_envs = int(self.algo.batch_size / self.algo.max_path_length)
             n_envs = max(1, min(n_envs, 100))
+            print('now n_env=', n_envs)
 
         if getattr(self.algo.env, 'vectorized', False):
+            print("the env is already vectorized, so we just take the vec_env_executor as self.vec_env")
             self.vec_env = self.algo.env.vec_env_executor(n_envs=n_envs, max_path_length=self.algo.max_path_length)
         else:
+            print('the env is NOT vect so we pickle and load it n times!')
             envs = [pickle.loads(pickle.dumps(self.algo.env)) for _ in range(n_envs)]
             self.vec_env = VecEnvExecutor(
                 envs=envs,
@@ -64,14 +78,12 @@ class VectorizedSampler(BaseSampler):
         env_time = 0
         process_time = 0
 
-        policy = self.algo.policy
         import time
-
 
         while n_samples < self.algo.batch_size:
             t = time.time()
-            policy.reset(dones)
-            actions, agent_infos = policy.get_actions(obses)
+            self.policy.reset(dones)
+            actions, agent_infos = self.policy.get_actions(obses)
 
             policy_time += time.time() - t
             t = time.time()
