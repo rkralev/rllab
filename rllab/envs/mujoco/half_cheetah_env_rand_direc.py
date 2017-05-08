@@ -27,6 +27,10 @@ class HalfCheetahEnvRandDirec(MujocoEnv, Serializable):
         self.goal_vel = goal_vel
         self.reset(reset_args=goal_vel)
 
+    @property  # this should have the same name for all envs. It gives the reset_args
+    def objective_param(self):
+        return self.goal_vel
+
     @overrides
     def reset(self, init_state=None, reset_args=None, **kwargs):
         goal_vel = reset_args

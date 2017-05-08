@@ -11,9 +11,7 @@ class VecEnvExecutor(object):
         self.ts = np.zeros(len(self.envs), dtype='int')
         self.max_path_length = max_path_length
 
-    def step(self, action_n, reset_args=None):
-        if reset_args is None:
-            reset_args = [None]*len(self.envs)
+    def step(self, action_n):
         all_results = [env.step(a) for (a, env) in zip(action_n, self.envs)]
         obs, rewards, dones, env_infos = list(map(list, list(zip(*all_results))))
         dones = np.asarray(dones)
@@ -21,18 +19,41 @@ class VecEnvExecutor(object):
         self.ts += 1
         if self.max_path_length is not None:
             dones[self.ts >= self.max_path_length] = True
-        for (i, done) in enumerate(dones):
-            if done:
-                obs[i] = self.envs[i].reset(reset_args[i])
-                self.ts[i] = 0
+        # for (i, done) in enumerate(dones):
+        #     if done:
+        #         obs[i] = self.envs[i].reset(reset_args[i])
+        #         self.ts[i] = 0
         return obs, rewards, dones, tensor_utils.stack_tensor_dict_list(env_infos)
 
-    def reset(self, reset_args=None):
-        if reset_args is not None:
-            results = [env.reset(arg) for env, arg in zip(self.envs, reset_args)]
-        else:
-            results = [env.reset() for env in self.envs]
-        self.ts[:] = 0
+    def reset(self, dones=None, *reset_args, **reset_kwargs):
+        # if not specify the dones, reset all the envs
+        if dones is None:
+            dones = [True] * self.num_envs
+
+        # if the elements of reset_args are not lists of num_envs, we set the same arg for each env
+        expanded_reset_args = []
+        for arg in reset_args:
+            if not hasattr(arg, '__len__') or len(arg) != self.num_envs:
+                expanded_reset_args.append([arg] * self.num_envs)
+            else:
+                expanded_reset_args.append(arg)
+        if len(expanded_reset_args) == 0:
+            expanded_reset_args = [()] * self.num_envs
+
+        # if the reset args are not list of dirs, we set the same args for each env
+        expanded_reset_kwargs = [{} for _ in range(self.num_envs)]
+        for kw, val in reset_kwargs.items():
+            if not hasattr(val, '__len__') or len(val) != self.num_envs:
+                for env_idx in range(self.num_envs):
+                    expanded_reset_kwargs[env_idx][kw] = val
+            else:
+                for env_idx, kwarg in enumerate(val):
+                    expanded_reset_kwargs[env_idx][kw] = kwarg
+
+        dones = np.cast['bool'](dones)
+        results = [env.reset(*arg, **kwargs) for idx, env, arg, kwargs in
+                   zip(range(self.num_envs), self.envs, expanded_reset_args, expanded_reset_kwargs) if dones[idx]]
+        self.ts[dones] = 0
         return results
 
     @property

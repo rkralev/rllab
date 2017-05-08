@@ -17,7 +17,7 @@ class Policy(Parameterized):
     def get_actions(self, observations):
         raise NotImplementedError
 
-    def reset(self, dones=None):
+    def reset(self, dones=None, *args, **kwargs):
         pass
 
     @property

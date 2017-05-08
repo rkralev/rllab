@@ -9,6 +9,7 @@ from sandbox.rocky.tf.policies.base import Policy
 import tensorflow as tf
 from sandbox.rocky.tf.samplers.batch_sampler import BatchSampler
 from sandbox.rocky.tf.samplers.vectorized_sampler import VectorizedSampler
+from sandbox.rocky.tf.samplers.vectorized_demo_sampler import VectorizedDemoSampler
 
 import numpy as np
 
@@ -44,6 +45,8 @@ class BatchSensitiveLfD_Polopt(RLAlgorithm):
             fixed_horizon=False,
             sampler_cls=None,
             sampler_args=None,
+            demo_sampler_cls=None,
+            demo_sampler_args=None,
             demo_policy=None,
             force_batch_sampler=False,
             use_sensitive=True,
@@ -98,14 +101,18 @@ class BatchSensitiveLfD_Polopt(RLAlgorithm):
 
         if sampler_cls is None:
             sampler_cls = VectorizedSampler
+        if demo_sampler_cls is None:
+            demo_sampler_cls = VectorizedDemoSampler
         if sampler_args is None:
             sampler_args = dict()
-        sampler_args['n_envs'] = self.meta_batch_size
+        if demo_sampler_args is None:
+            demo_sampler_args = dict()
+        sampler_args['n_envs'] = demo_sampler_args['n_envs'] = self.meta_batch_size
         self.sampler = sampler_cls(self, **sampler_args)
         if demo_policy is None:
             print("***Your demos are dumb!***")
             demo_policy = self.policy
-        self.demo_sampler = sampler_cls(self, **sampler_args, policy=demo_policy)
+        self.demo_sampler = demo_sampler_cls(self, **demo_sampler_args, policy=demo_policy)
         #self.init_opt()  # init_opt now happens in train()
 
     def start_worker(self):
@@ -118,16 +125,16 @@ class BatchSensitiveLfD_Polopt(RLAlgorithm):
         self.sampler.shutdown_worker()
         self.demo_sampler.shutdown_worker()
 
-    def obtain_samples(self, itr, reset_args=None):
+    def obtain_samples(self, itr, *reset_args, **reset_kwargs):
         # This obtains samples using self.policy, and calling policy.get_actions(obses)
         # return_dict specifies how the samples should be returned (dict separates samples
         # by task)
-        paths = self.sampler.obtain_samples(itr, reset_args, return_dict=True)
+        paths = self.sampler.obtain_samples(itr, return_dict=True, *reset_args, **reset_kwargs)
         assert type(paths) == dict
         return paths
 
-    def obtain_demo_samples(self, itr, reset_args=None):
-        paths = self.demo_sampler.obtain_samples(itr, reset_args, return_dict=True)
+    def obtain_demo_samples(self, itr, *reset_args, **reset_kwargs):
+        paths = self.demo_sampler.obtain_samples(itr, return_dict=True, *reset_args, **reset_kwargs)
         assert type(paths) == dict
         return paths
 
@@ -154,46 +161,54 @@ class BatchSensitiveLfD_Polopt(RLAlgorithm):
 
             print('about to start workers in the train method of batch_lfd_polopt')
             self.start_worker()
-            # import pdb; pdb.set_trace()
             start_time = time.time()
             for itr in range(self.start_itr, self.n_itr):
                 itr_start_time = time.time()
                 with logger.prefix('itr #%d | ' % itr):
-                    logger.log("Sampling set of tasks/goals for this meta-batch...")
-                    # TODO - this is a hacky way to specify tasks.
-                    if self.env.observation_space.shape[0] <= 4:  # pointmass (oracle=4, normal=2)
-                        learner_env_goals = np.zeros((self.meta_batch_size, 2, ))
-                        # 2d
-                        learner_env_goals = np.random.uniform(-0.5, 0.5, size=(self.meta_batch_size, 2, ))
+                    # logger.log("Sampling set of tasks/goals for this meta-batch...")
+                    # # TODO - this is a hacky way to specify tasks.
+                    # if self.env.observation_space.shape[0] <= 4:  # pointmass (oracle=4, normal=2)
+                    #     learner_env_goals = np.zeros((self.meta_batch_size, 2, ))
+                    #     # 2d
+                    #     learner_env_goals = np.random.uniform(-0.5, 0.5, size=(self.meta_batch_size, 2, ))
+                    #
+                    # elif self.env.spec.action_space.shape[0] == 8: # ant
+                    #     # 0.0 to 3.0 is what specifies the task -- goal vel ranges 0-3.0.
+                    #     # for fwd/bwd env, goal direc is backwards if < 1.5, forwards if > 1.5
+                    #     learner_env_goals = np.random.uniform(0.0, 3.0, (self.meta_batch_size, ))
+                    #
+                    # elif self.env.spec.action_space.shape[0] == 6: # cheetah
+                    #     # 0.0 to 2.0 is what specifies the task -- goal vel ranges 0-2.0.
+                    #     # for fwd/bwd env, goal direc is backwards if < 1.0, forwards if > 1.0
+                    #     learner_env_goals = np.random.uniform(0.0, 2.0, (self.meta_batch_size, ))
+                    #
+                    # else:
+                    #     raise NotImplementedError('unrecognized env')
 
-                    elif self.env.spec.action_space.shape[0] == 8: # ant
-                        # 0.0 to 3.0 is what specifies the task -- goal vel ranges 0-3.0.
-                        # for fwd/bwd env, goal direc is backwards if < 1.5, forwards if > 1.5
-                        learner_env_goals = np.random.uniform(0.0, 3.0, (self.meta_batch_size, ))
-
-                    elif self.env.spec.action_space.shape[0] == 6: # cheetah
-                        # 0.0 to 2.0 is what specifies the task -- goal vel ranges 0-2.0.
-                        # for fwd/bwd env, goal direc is backwards if < 1.0, forwards if > 1.0
-                        learner_env_goals = np.random.uniform(0.0, 2.0, (self.meta_batch_size, ))
-
-                    else:
-                        raise NotImplementedError('unrecognized env')
-
+                    # logger.log("clean reset of the env")
+                    # self.env.reset(clean_reset=True)
+                    self.start_worker()  # this re-instanciates all the envs! --> does it put to None all the goals?
+                    # import pdb; pdb.set_trace()  # when it's instantiated, is it giving a None goal?
                     self.policy.switch_to_init_dist()  # Switch to pre-update policy
 
-                    # TODO: no need of several gradient updates
-                    all_samples_data, all_paths, all_sampled_demos, all_demos = [], [], [], []
+                    # TODO: no need of several gradient updates, but still 2 for evaluating goodness of change!
+                    all_samples_data, all_unprocessed_paths, all_sampled_demos, all_unprocessed_demos = [], [], [], []
                     for step in range(self.num_grad_updates+1):
                         logger.log('** Step ' + str(step) + ' **')
-                        logger.log("Obtaining samples...")
-                        paths = self.obtain_samples(itr, reset_args=learner_env_goals)  ##CF not great that you have to pass here the resets
-                        demos = self.obtain_demo_samples(itr, reset_args=learner_env_goals)
-                        all_paths.append(paths)
-                        all_demos.append(demos)
+                        logger.log("Obtaining samples...")  # TODO: make sure that the reset is only done in first step!
+                        paths = self.obtain_samples(itr)  # should not need to fix reset # , reset_args=learner_env_goals)
+                        # capture the reset_args that should be use to give the demos
+                        if isinstance(self.sampler, VectorizedSampler):
+                            learner_env_goals = [env.wrapped_env.wrapped_env.objective_params for env in self.sampler.vec_env.envs]
+                        else:
+                            learner_env_goals = self.env.wrapped_env.wrapped_env.objective_params
+                        demos = self.obtain_demo_samples(itr, objective_params=learner_env_goals)
+                        all_unprocessed_paths.append(paths)
+                        all_unprocessed_demos.append(demos)
                         logger.log("Processing samples...")
                         samples_data = {}
                         samples_demos = {}
-                        for key in paths.keys():  # the keys are the tasks
+                        for key in paths.keys():  # the keys are the tasks. Process each of them sequentially
                             # don't log because this will spam the consol with every task.
                             samples_data[key] = self.sampler.process_samples(itr, paths[key], log=False)
                         for key in demos.keys():
@@ -213,6 +228,10 @@ class BatchSensitiveLfD_Polopt(RLAlgorithm):
                     logger.log("Optimizing policy...")
                     # This needs to take all samples_data so that it can construct graph for meta-optimization.
                     self.optimize_policy(itr, all_samples_data)
+
+                    logger.log("Logging diagnostics...") # assumes list of dicts of list of paths
+                    self.env.log_diagnostics(paths=all_unprocessed_paths, demos=all_unprocessed_demos, prefix='')  # without the vect it would be a list of lists of paths, not supported
+
                     logger.log("Saving snapshot...")
                     params = self.get_itr_snapshot(itr, all_samples_data[-1])  # , **kwargs)
                     if self.store_paths:
@@ -286,8 +305,8 @@ class BatchSensitiveLfD_Polopt(RLAlgorithm):
                     #              "continue...")
         self.shutdown_worker()
 
-    def log_diagnostics(self, paths, prefix):
-        self.env.log_diagnostics(paths, prefix)
+    def log_diagnostics(self, paths, prefix):  # assume paths is a list (num_steps) of dicts (n_envs)
+        """Does not call the log_diagnostics of the env (because could need demos)"""
         self.policy.log_diagnostics(paths, prefix)
         self.baseline.log_diagnostics(paths)
 

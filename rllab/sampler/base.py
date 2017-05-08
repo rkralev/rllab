@@ -88,6 +88,8 @@ class BaseSampler(Sampler):
             baselines.append(path_baselines[:-1])
             returns.append(path["returns"])
 
+        avg_path_length = np.mean([len(path["rewards"]) for path in paths])
+
         ev = special.explained_variance_1d(
             np.concatenate(baselines),
             np.concatenate(returns)
@@ -189,6 +191,7 @@ class BaseSampler(Sampler):
             logger.record_tabular(prefix+'AverageReturn', np.mean(undiscounted_returns))
             logger.record_tabular(prefix+'ExplainedVariance', ev)
             logger.record_tabular(prefix+'NumTrajs', len(paths))
+            logger.record_tabular(prefix+'AveragePathLen', np.mean(avg_path_length))
             logger.record_tabular(prefix+'Entropy', ent)
             logger.record_tabular(prefix+'Perplexity', np.exp(ent))
             logger.record_tabular(prefix+'StdReturn', np.std(undiscounted_returns))

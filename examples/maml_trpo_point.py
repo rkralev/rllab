@@ -45,6 +45,7 @@ for fast_learning_rate in fast_learning_rates:
                 baseline = LinearFeatureBaseline(env_spec=env.spec)
             else:
                 baseline = GaussianMLPBaseline(env_spec=env.spec)
+
             algo = SensitiveTRPO(
                 env=env,
                 policy=policy,

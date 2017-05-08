@@ -1,5 +1,8 @@
 import pickle
-
+from rllab.misc import special
+from rllab.misc import tensor_utils
+from rllab.algos import util
+import rllab.misc.logger as logger
 import tensorflow as tf
 from rllab.sampler.base import BaseSampler
 from sandbox.rocky.tf.envs.parallel_vec_env_executor import ParallelVecEnvExecutor
@@ -11,21 +14,102 @@ import rllab.misc.logger as logger
 import itertools
 
 
-class VectorizedSampler(BaseSampler):
+class VectorizedDemoSampler(BaseSampler):
 
     def __init__(self, algo, policy=None, n_envs=None):  # allows to define another policy (for demos)!
         """
         :param policy: allows to define a sampling policy. uses 0 baseline!
         :param n_envs: 
         """
-        super(VectorizedSampler, self).__init__(algo, policy=policy)
+        super(VectorizedDemoSampler, self).__init__(algo, policy=policy)
         self.n_envs = n_envs
 
-    def process_samples(self, *args, **kwargs):
-        if self.policy is not self.algo.policy:
-            raise NotImplementedError("The ran policy was different: you will be fitting the wrong baseline!")
+    def process_samples(self, itr, paths, prefix='demo_', log=True):
+        # if self.policy is not self.algo.policy:
+        #     raise NotImplementedError("The ran policy was different: you will be fitting the wrong baseline!")
+        # else:
+        #     return super(VectorizedDemoSampler, self).process_samples(*args, **kwargs)
+
+        baselines = []
+        returns = []
+
+        for idx, path in enumerate(paths):
+            path["returns"] = special.discount_cumsum(path["rewards"], self.algo.discount)
+
+        if log:
+            logger.log("using zero baseline")
+        all_path_baselines = [np.zeros_like(path['rewards']) for path in paths]
+
+        for idx, path in enumerate(paths):
+            path_baselines = np.append(all_path_baselines[idx], 0)
+            deltas = path["rewards"] + \
+                     self.algo.discount * path_baselines[1:] - \
+                     path_baselines[:-1]
+            path["advantages"] = special.discount_cumsum(
+                deltas, self.algo.discount * self.algo.gae_lambda)
+            baselines.append(path_baselines[:-1])
+            returns.append(path["returns"])
+
+        avg_path_length = np.mean([len(path["rewards"]) for path in paths])
+        max_path_length = max([len(path["advantages"]) for path in paths])
+
+        # make all paths the same length (pad extra advantages with 0)
+        obs = [path["observations"] for path in paths]
+        obs = tensor_utils.pad_tensor_n(obs, max_path_length)
+
+        if self.algo.center_adv:
+            raw_adv = np.concatenate([path["advantages"] for path in paths])
+            adv_mean = np.mean(raw_adv)
+            adv_std = np.std(raw_adv) + 1e-8
+            adv = [(path["advantages"] - adv_mean) / adv_std for path in paths]
         else:
-            return super(VectorizedSampler, self).process_samples(*args, **kwargs)
+            adv = [path["advantages"] for path in paths]
+
+        adv = np.asarray([tensor_utils.pad_tensor(a, max_path_length) for a in adv])
+
+        actions = [path["actions"] for path in paths]
+        actions = tensor_utils.pad_tensor_n(actions, max_path_length)
+
+        rewards = [path["rewards"] for path in paths]
+        rewards = tensor_utils.pad_tensor_n(rewards, max_path_length)
+
+        returns = [path["returns"] for path in paths]
+        returns = tensor_utils.pad_tensor_n(returns, max_path_length)
+
+        agent_infos = [path["agent_infos"] for path in paths]
+        agent_infos = tensor_utils.stack_tensor_dict_list(
+            [tensor_utils.pad_tensor_dict(p, max_path_length) for p in agent_infos]
+        )
+
+        env_infos = [path["env_infos"] for path in paths]
+        env_infos = tensor_utils.stack_tensor_dict_list(
+            [tensor_utils.pad_tensor_dict(p, max_path_length) for p in env_infos]
+        )
+
+        valids = [np.ones_like(path["returns"]) for path in paths]
+        valids = tensor_utils.pad_tensor_n(valids, max_path_length)
+        undiscounted_returns = [sum(path["rewards"]) for path in paths]
+
+        samples_data = dict(
+            observations=obs,
+            actions=actions,
+            advantages=adv,
+            rewards=rewards,
+            returns=returns,
+            valids=valids,
+            agent_infos=agent_infos,
+            env_infos=env_infos,
+            paths=paths,
+        )
+        if log:
+            logger.record_tabular(prefix+'AverageReturn', np.mean(undiscounted_returns))
+            logger.record_tabular(prefix+'AveragePathLen', np.mean(avg_path_length))
+            logger.record_tabular(prefix+'NumTrajs', len(paths))
+            logger.record_tabular(prefix+'StdReturn', np.std(undiscounted_returns))
+            logger.record_tabular(prefix+'MaxReturn', np.max(undiscounted_returns))
+            logger.record_tabular(prefix+'MinReturn', np.min(undiscounted_returns))
+
+        return samples_data
 
     def start_worker(self):
         print('starting worker for n_env=', self.n_envs)
@@ -78,8 +162,8 @@ class VectorizedSampler(BaseSampler):
 
         while n_samples < self.algo.batch_size:
             t = time.time()
-            self.policy.reset(dones)  # uses the same reset_args than the env!
-            actions, agent_infos = self.policy.get_actions(obses)
+            self.policy.reset(dones)
+            actions, agent_infos = self.policy.get_actions(obses, *reset_args, **reset_kwargs)  # uses the same reset_args than the env!
 
             policy_time += time.time() - t
             t = time.time()

@@ -3,7 +3,7 @@ from sandbox.rocky.tf.algos.sensitive_lfd_trpo import SensitiveLfD_TRPO
 from rllab.baselines.linear_feature_baseline import LinearFeatureBaseline
 from rllab.baselines.gaussian_mlp_baseline import GaussianMLPBaseline
 from rllab.baselines.zero_baseline import ZeroBaseline
-from examples.point_env_randgoal import PointEnvRandGoal
+from examples.point_env_randgoal import PointEnvRandGoal, StraightDemo
 from examples.point_env_randgoal_oracle import PointEnvRandGoalOracle
 from rllab.envs.normalized_env import normalize
 from rllab.misc.instrument import stub, run_experiment_lite
@@ -20,7 +20,7 @@ learning_rates = [1e-2]  # 1e-3 works well for 1 step, trying lower for 2 step, 
 fast_learning_rates = [0.5]
 baselines = ['linear']
 fast_batch_size = 20  # 10 works for [0.1, 0.2], 20 doesn't improve much for [0,0.2]
-meta_batch_size = 40  # 10 also works, but much less stable, 20 is fairly stable, 40 is more stable
+meta_batch_size =  40 # 10 also works, but much less stable, 20 is fairly stable, 40 is more stable --> n_env!!!!
 max_path_length = 100
 num_grad_updates = 1
 meta_step_size = 0.01
@@ -40,7 +40,8 @@ for fast_learning_rate in fast_learning_rates:
                 hidden_nonlinearity=tf.nn.relu,
                 hidden_sizes=(100,100),
             )
-            # demo_policy = DemoPt()
+
+            demo_policy = StraightDemo(env_spec=env.spec)
 
             if bas == 'zero':
                 baseline = ZeroBaseline(env_spec=env.spec)
@@ -51,7 +52,7 @@ for fast_learning_rate in fast_learning_rates:
             algo = SensitiveLfD_TRPO(
                 env=env,
                 policy=policy,
-                demo_policy=None,
+                demo_policy=demo_policy,
                 baseline=baseline,
                 batch_size=fast_batch_size, # number of trajs for grad update
                 max_path_length=max_path_length,
