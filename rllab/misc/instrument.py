@@ -691,7 +691,7 @@ def to_docker_command(params, docker_image, python_command="python", script='scr
     if use_gpu:
         command_prefix = "nvidia-docker run"
     else:
-        command_prefix = "docker run"
+        command_prefix = "docker run" # TODO - need to change this to sudo to run on newton3
     docker_log_dir = config.DOCKER_LOG_DIR
 
     if env is None:
