@@ -15,8 +15,9 @@ class PusherEnv(MujocoEnv, Serializable):
 
     FILE = None #'pusher.xml'
 
-    def __init__(self, xml_file, *args, **kwargs):
-        self.__class__.FILE = xml_file
+    def __init__(self, *args, **kwargs):
+        self.__class__.FILE = kwargs['xml_file']
+        #kwargs.pop('xml_file')
         super(PusherEnv, self).__init__(*args, **kwargs)
         Serializable.__init__(self, *args, **kwargs)
 

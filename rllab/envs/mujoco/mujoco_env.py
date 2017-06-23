@@ -39,7 +39,7 @@ class MujocoEnv(Env):
     @autoargs.arg('action_noise', type=float,
                   help='Noise added to the controls, which will be '
                        'proportional to the action bounds')
-    def __init__(self, action_noise=0.0, file_path=None, template_args=None):
+    def __init__(self, action_noise=0.0, file_path=None, template_args=None, **kwargs):
         # compile template
         if file_path is None:
             if self.__class__.FILE is None:
