@@ -16,9 +16,11 @@ class PusherEnv(MujocoEnv, Serializable):
     FILE = None #'pusher.xml'
 
     def __init__(self, *args, **kwargs):
+        self.frame_skip = 5
         self.__class__.FILE = kwargs['xml_file']
         #kwargs.pop('xml_file')
         super(PusherEnv, self).__init__(*args, **kwargs)
+        self.frame_skip = 5
         Serializable.__init__(self, *args, **kwargs)
 
     def get_current_obs(self):
@@ -39,9 +41,7 @@ class PusherEnv(MujocoEnv, Serializable):
         return self.model.data.com_subtree[idx]
 
     def step(self, action):
-        self.forward_dynamics(action)
-        next_obs = self.get_current_obs()
-
+        self.frame_skip = 5
         vec_1 = self.get_body_com("object") - self.get_body_com("tips_arm")
         vec_2 = self.get_body_com("object") - self.get_body_com("goal")
         reward_near = - np.linalg.norm(vec_1)
@@ -49,11 +49,15 @@ class PusherEnv(MujocoEnv, Serializable):
         reward_ctrl = - np.square(action).sum()
         reward = reward_dist + 0.1 * reward_ctrl + 0.5 * reward_near
 
+        self.forward_dynamics(action) # TODO - frame skip
+        next_obs = self.get_current_obs()
+
         done = False
         return Step(next_obs, reward, done)
 
     @overrides
     def reset(self, init_state=None):
+        self.frame_skip = 5
         qpos = self.init_qpos.copy()
         self.goal_pos = np.asarray([0, 0])
 

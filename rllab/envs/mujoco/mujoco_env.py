@@ -2,6 +2,8 @@ import numpy as np
 import os.path as osp
 from cached_property import cached_property
 
+import rllab
+
 from rllab import spaces
 from rllab.envs.base import Env
 from rllab.misc.overrides import overrides
@@ -59,7 +61,14 @@ class MujocoEnv(Env):
             self.model = MjModel(file_path)
             os.close(tmp_f)
         else:
-            self.model = MjModel(file_path)
+            try:
+                self.model = MjModel(file_path)
+            except rllab.mujoco_py.mjcore.MjError:
+                rllab_path = rllab.__file__
+                prefix = rllab_path[:rllab_path.index('rllab')] + 'rllab/vendor/local_mujoco_models/'
+                suffix = file_path[file_path.index('pusher'):]
+                #suffix = 'pusher98.xml'
+                self.model = MjModel(prefix+suffix)
         self.data = self.model.data
         self.viewer = None
         self.init_qpos = self.model.data.qpos
