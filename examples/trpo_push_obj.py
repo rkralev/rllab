@@ -17,15 +17,20 @@ from rllab.misc.instrument import VariantGenerator, variant
 
 import glob
 import random
+local = False
 
 DOCKER_CODE_DIR = "/root/code/rllab/"
 LOCAL_CODE_DIR = '/home/cfinn/code/rllab/'
-#DOCKER_CODE_DIR = LOCAL_CODE_DIR
+if local:
+    DOCKER_CODE_DIR = LOCAL_CODE_DIR
+    mode = 'local'
+else:
+    mode = 'ec2'
 
 class VG(VariantGenerator):
     @variant
     def seed(self):
-        return range(2,3) #102)
+        return range(1,101) #102)
 
 
 variants = VG().variants()
@@ -33,18 +38,23 @@ variants = VG().variants()
 
 def run_task(v):
 
-    random.seed(v['seed'])
-    objs = glob.glob(DOCKER_CODE_DIR+'vendor/mujoco_models/*.stl')
-    random_obj = random.choice(objs)
-    random_scale = random.uniform(0.5, 1.0)
-    random_mass = random.uniform(0.1, 2.0)
-    random_damp = random.uniform(0.2, 5.0)
+    #random.seed(v['seed'])
+    #objs = glob.glob(DOCKER_CODE_DIR+'vendor/mujoco_models/*.stl')
+    #random_obj = random.choice(objs)
+    #random_scale = random.uniform(0.5, 1.0)
+    #random_mass = random.uniform(0.1, 2.0)
+    #random_damp = random.uniform(0.2, 5.0)
     # Log experiment info
-    exp_log_info = {'obj': random_obj, 'scale': random_scale, 'mass': random_mass, 'damp': random_damp}
+    #exp_log_info = {'obj': random_obj, 'scale': random_scale, 'mass': random_mass, 'damp': random_damp}
 
-    pusher_model = pusher(mesh_file=random_obj, obj_scale=random_scale,obj_mass=random_mass,obj_damping=random_damp)
-    xml_filepath = DOCKER_CODE_DIR+'pusher.xml'  # Put it in exp dir, not here.
-    pusher_model.save(xml_filepath)
+    #pusher_model = pusher(mesh_file=random_obj, obj_scale=random_scale,obj_mass=random_mass,obj_damping=random_damp)
+    #xml_filepath = DOCKER_CODE_DIR+'pusher.xml'  # Put it in exp dir, not here.
+    #pusher_model.save(xml_filepath)
+    if local:
+        xml_filepath = DOCKER_CODE_DIR + 'vendor/local_mujoco_models/pusher' + str(v['seed']) + '.xml'
+    else:
+        xml_filepath = DOCKER_CODE_DIR + 'vendor/mujoco_models/pusher' + str(v['seed']) + '.xml'
+    exp_log_info = {'xml': xml_filepath}
 
     gym_env = PusherEnv(**{'xml_file':xml_filepath})
     #gym_env = GymEnv('Pusher-v0', force_reset=True, record_video=False)
@@ -66,7 +76,7 @@ def run_task(v):
         baseline=baseline,
         batch_size=100*500,
         max_path_length=100,
-        n_itr=200,
+        n_itr=301,
         discount=0.99,
         step_size=0.01,
         force_batch_sampler=True,
@@ -85,15 +95,15 @@ for v in variants:
         # Only keep the snapshot parameters for the last iteration
         snapshot_mode="gap",
         snapshot_gap=20,
-        exp_prefix='trpo_push_experts',
+        exp_prefix='rllab_fixed_push_experts',
         python_command='python3',
         # Specifies the seed for the experiment. If this is not provided, a random seed
         # will be used
         seed=v['seed'],
         variant=v,
-        mode="ec2",
+        # mode="ec2",
         # mode="local_docker",
-        #mode='local',
+        mode=mode, #'local',
         confirm_remote=False,
         sync_s3_pkl=True,
         # plot=True,
