@@ -235,7 +235,6 @@ def pusher(obj_scale=None,obj_mass=None,obj_damping=None,object_pos=(0.45, -0.05
         object_pos[1] -= scale*(miny+maxy)/2.0
         object_pos[2] = -0.324 - scale*minz
         object_scale = scale
-        import pdb; pdb.set_trace()
     if distractor_mesh_file is not None:
         distr_mesh_object = mesh.Mesh.from_file(distractor_mesh_file)
         vol, cog, inertia = distr_mesh_object.get_mass_properties()
@@ -284,7 +283,7 @@ def pusher(obj_scale=None,obj_mass=None,obj_damping=None,object_pos=(0.45, -0.05
     asset = mjcmodel.root.asset()
     asset.mesh(file=mesh_file_path, name="object_mesh", scale=[object_scale]*3) # figure out the proper scale
     if distractor_mesh_file:
-        asset.mesh(file=distractor_mesh_files[i], name="distractor_mesh", scale=[distr_scale]*3)
+        asset.mesh(file=distractor_mesh_file, name="distractor_mesh", scale=[distr_scale]*3)
 
     actuator = mjcmodel.root.actuator()
     actuator.motor(joint="r_shoulder_pan_joint", ctrlrange="-2.0 2.0", ctrllimited="true")
