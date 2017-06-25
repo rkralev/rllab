@@ -157,11 +157,9 @@ class MJCTreeNode(object):
         s += ' '.join(['%s="%s"'%(k,v) for (k,v) in self.attrs.items()])
         return s+">"
 
-def pusher(obj_scale=None,obj_mass=None,obj_damping=None,object_pos=(0.45, -0.05, -0.275), goal_pos=(0.45, -0.05, -0.3230), distractors_pos=[], N_objects=1, mesh_file=None,mesh_file_path=None, distractor_mesh_files=None, friction=(.8, .1, .1)):
-
-    object_pos = list(object_pos)
-    goal_pos = list(goal_pos)
-    friction=list(friction)
+def pusher(obj_scale=None,obj_mass=None,obj_damping=None,object_pos=(0.45, -0.05, -0.275),distr_scale=None, distr_mass=None, distr_damping=None, goal_pos=(0.45, -0.05, -0.3230), distractor_pos=(0.45,-0.05,-0.275), N_objects=1, mesh_file=None,mesh_file_path=None, distractor_mesh_file=None, friction=(.8, .1, .1)):
+    object_pos, goal_pos, distractor_pos, friction = list(object_pos), list(goal_pos), list(distractor_pos), list(friction)
+    # For now, only supports one distractor
 
     if obj_scale is None:
         obj_scale = random.uniform(0.5, 1.0)  # currently trying range of 0.5-1.0
@@ -169,8 +167,17 @@ def pusher(obj_scale=None,obj_mass=None,obj_damping=None,object_pos=(0.45, -0.05
         obj_mass = random.uniform(0.1, 2.0)  # largest is 2.0, lowest is 0.1 I think
     if obj_damping is None:
         obj_damping = random.uniform(0.2, 5.0) # This is friction. ranges between 0.2 and 5.0
-
     obj_damping = str(obj_damping)
+
+    if distractor_mesh_file:
+        if distr_scale is None:
+            distr_scale = random.uniform(0.5, 1.0)  # currently trying range of 0.5-1.0
+        if distr_mass is None:
+            distr_mass = random.uniform(0.1, 2.0)  # largest is 2.0, lowest is 0.1 I think
+        if distr_damping is None:
+            distr_damping = random.uniform(0.2, 5.0) # This is friction. ranges between 0.2 and 5.0
+        distr_damping = str(distr_damping)
+
 
     mjcmodel = MJCModel('arm3d')
     mjcmodel.root.compiler(inertiafromgeom="true", angle="radian", coordinate="local")
@@ -217,7 +224,6 @@ def pusher(obj_scale=None,obj_mass=None,obj_damping=None,object_pos=(0.45, -0.05
     r_wrist_roll_link.geom(type="capsule", fromto="0 -0.1 0. 0.1 -0.1 0", size="0.02", contype="1", conaffinity="1")
     r_wrist_roll_link.geom(type="capsule", fromto="0 +0.1 0. 0.1 +0.1 0", size="0.02", contype="1", conaffinity="1")
 
-
     if mesh_file is not None:
         mesh_object = mesh.Mesh.from_file(mesh_file)
         vol, cog, inertia = mesh_object.get_mass_properties()
@@ -229,8 +235,34 @@ def pusher(obj_scale=None,obj_mass=None,obj_damping=None,object_pos=(0.45, -0.05
         object_pos[1] -= scale*(miny+maxy)/2.0
         object_pos[2] = -0.324 - scale*minz
         object_scale = scale
-        # import pdb; pdb.set_trace()
+        import pdb; pdb.set_trace()
+    if distractor_mesh_file is not None:
+        distr_mesh_object = mesh.Mesh.from_file(distractor_mesh_file)
+        vol, cog, inertia = distr_mesh_object.get_mass_properties()
+        minx, maxx, miny, maxy, minz, maxz = find_mins_maxs(distr_mesh_object)
+        max_length = max((maxx-minx),max((maxy-miny),(maxz-minz)))
+        distr_scale = distr_scale*0.0012 * (200.0 / max_length)
+        distr_density = distr_mass / (vol*distr_scale*distr_scale*distr_scale)
+        distractor_pos[0] -= distr_scale*(minx+maxx)/2.0
+        distractor_pos[1] -= distr_scale*(miny+maxy)/2.0
+        distractor_pos[2] = -0.324 - distr_scale*minz
 
+    ## MAKE DISTRACTOR
+    if distractor_mesh_file:
+        distractor = worldbody.body(name="distractor", pos=distractor_pos)#"0.45 -0.05 -0.275")
+        #distractor.geom(rgba="1 1 1 0", type="sphere", size="0.05 0.05 0.05", density="0.00001", conaffinity="0")
+        if distractor_mesh_file is None:
+            distractor.geom(rgba="1 1 1 1", type="cylinder", size="0.05 0.05 0.05", density="0.00001", contype="1", conaffinity="0")
+        else:
+            # mesh = distractor.body(axisangle="1 0 0 1.57", pos="0 0 0") # axis angle might also need to be adjusted
+            # TODO: do we need material here?
+            distractor.geom(conaffinity="0", contype="1", density=str(distr_density), mesh="distractor_mesh" , rgba="1 1 1 1", type="mesh")
+            # distal = mesh.body(name="distal_10_%d" % i, pos="0 0 0")
+            # distal.site(name="distractor_pos_%d" % i, pos="0 0 0", size="0.01")
+        distractor.joint(name="distractor_slidey", type="slide", pos="0 0 0", axis="0 1 0", range="-10.3213 10.3", damping=distr_damping)
+        distractor.joint(name="distractor_slidex", type="slide", pos="0 0 0", axis="1 0 0", range="-10.3213 10.3", damping=distr_damping)
+
+    # MAKE TARGET OBJECT
     object = worldbody.body(name="object", pos=object_pos)#"0.45 -0.05 -0.275")
     # object.geom(rgba="1 1 1 0", type="sphere", size="0.05 0.05 0.05", density="0.00001", conaffinity="0")
     if mesh_file is None:
@@ -244,20 +276,6 @@ def pusher(obj_scale=None,obj_mass=None,obj_damping=None,object_pos=(0.45, -0.05
     object.joint(name="obj_slidey", type="slide", pos="0 0 0", axis="0 1 0", range="-10.3213 10.3", damping=obj_damping)
     object.joint(name="obj_slidex", type="slide", pos="0 0 0", axis="1 0 0", range="-10.3213 10.3", damping=obj_damping)
 
-    for i in range(N_objects-1):
-        distractor = worldbody.body(name="distractor_%d" % i, pos=distractor_pos[i])#"0.45 -0.05 -0.275")
-        distractor.geom(rgba="1 1 1 0", type="sphere", size="0.05 0.05 0.05", density="0.00001", conaffinity="0")
-        if mesh_file is None:
-            distractor.geom(rgba="1 1 1 1", type="cylinder", size="0.05 0.05 0.05", density="0.00001", contype="1", conaffinity="0")
-        else:
-            # mesh = distractor.body(axisangle="1 0 0 1.57", pos="0 0 0") # axis angle might also need to be adjusted
-            # TODO: do we need material here?
-            distractor.geom(conaffinity="0", contype="1", density="0.00001", mesh="distractor_mesh_%d" % i, rgba="1 1 1 1", type="mesh")
-            # distal = mesh.body(name="distal_10_%d" % i, pos="0 0 0")
-            # distal.site(name="distractor_pos_%d" % i, pos="0 0 0", size="0.01")
-        distractor.joint(name="distractor_slidey_%d" % i, type="slide", pos="0 0 0", axis="0 1 0", range="-10.3213 10.3", damping="0.5")
-        distractor.joint(name="distractor_slidex_%d" % i, type="slide", pos="0 0 0", axis="1 0 0", range="-10.3213 10.3", damping="0.5")
-
     goal = worldbody.body(name="goal", pos=goal_pos)#"0.45 -0.05 -0.3230")
     goal.geom(rgba="1 0 0 1", type="cylinder", size="0.08 0.001 0.1", density='0.00001', contype="0", conaffinity="0")
     goal.joint(name="goal_slidey", type="slide", pos="0 0 0", axis="0 1 0", range="-10.3213 10.3", damping="0.5")
@@ -265,8 +283,8 @@ def pusher(obj_scale=None,obj_mass=None,obj_damping=None,object_pos=(0.45, -0.05
 
     asset = mjcmodel.root.asset()
     asset.mesh(file=mesh_file_path, name="object_mesh", scale=[object_scale]*3) # figure out the proper scale
-    for i in range(N_objects - 1):
-        asset.mesh(file=distractor_mesh_files[i], name="distractor_mesh_%d" % i, scale="0.012 0.012 0.012")
+    if distractor_mesh_file:
+        asset.mesh(file=distractor_mesh_files[i], name="distractor_mesh", scale=[distr_scale]*3)
 
     actuator = mjcmodel.root.actuator()
     actuator.motor(joint="r_shoulder_pan_joint", ctrlrange="-2.0 2.0", ctrllimited="true")
@@ -285,20 +303,65 @@ if __name__ == '__main__':
     # Could edit this to be the path to the object file instead
     parser.add_argument('--xml_filepath', type=str, default='None')
     parser.add_argument('--obj_filepath', type=str, default='None')
+    parser.add_argument('--debug_log', type=str, default='None')
     args = parser.parse_args()
 
-    # TODO - could call code to autogenerate xml file here
-    model = pusher(mesh_file=args.obj_filepath)
+    if args.debug_log != 'None':
+        with open(args.debug_log, 'r') as f:
+            i = 0
+            mass = None
+            scale = None
+            obj = None
+            damp = None
+            xml_file = None
+            for line in f:
+                if 'scale:' in line:
+                    # scale
+                    string = line[line.index('scale:'):]
+                    scale = float(string[7:])
+                if 'damp:' in line:
+                    # damping
+                    string = line[line.index('damp:'):]
+                    damp = float(string[6:])
+                if 'obj:' in line:
+                    # obj
+                    string = line[line.index('obj:'):]
+                    string = string[string.index('rllab'):-1]
+                    obj = '/home/cfinn/code/' + string
+                if 'mass:' in line:
+                    # mass
+                    string = line[line.index('mass:'):]
+                    mass = float(string[6:])
+                if 'xml:' in line:
+                    string = line[line.index('xml:'):]
+                    xml_file = string[5:-1]
+                    suffix = xml_file[xml_file.index('pusher'):]
+                    xml_file = '/home/cfinn/code/rllab/vendor/local_mujoco_models/' + suffix
+                if (mass and scale and obj and damp) or xml_file:
+                    break
+        if not xml_file:
+            print(obj)
+            print(scale)
+            print(mass)
+            print(damp)
+            model = pusher(mesh_file=obj,mesh_file_path=obj, obj_scale=scale,obj_mass=mass,obj_damping=damp)
+            model.save('/home/cfinn/code/gym/gym/envs/mujoco/assets/pusher.xml')
+        else:
+            copyfile(xml_file, '/home/cfinn/code/gym/gym/envs/mujoco/assets/pusher.xml')
+    else:
+        # TODO - could call code to autogenerate xml file here
+        model = pusher(mesh_file=args.obj_filepath, mesh_file_path=args.obj_filepath)
+        model.save('/home/cfinn/code/gym/gym/envs/mujoco/assets/pusher.xml')
 
     # Copy xml file to gym xml location
-    if args.xml_filepath != 'None':
-        copyfile(args.xml_filepath, '/home/cfinn/code/gym/gym/envs/mujoco/assets/pusher.xml')
-    else:
-        model.save('/home/cfinn/code/gym/gym/envs/mujoco/assets/pusher.xml')
+    #if args.xml_filepath != 'None':
+    #    copyfile(args.xml_filepath, '/home/cfinn/code/gym/gym/envs/mujoco/assets/pusher.xml')
+    #else:
+    #    model.save('/home/cfinn/code/gym/gym/envs/mujoco/assets/pusher.xml')
     if args.obj_filepath != 'None':
         copy2(args.obj_filepath, '/home/cfinn/code/gym/gym/envs/mujoco/assets')
 
     env = gym.envs.make('Pusher-v0')
-    for _ in range(10):
+    for _ in range(100000):
         env.render()
         time.sleep(0.01)
