@@ -157,7 +157,7 @@ class MJCTreeNode(object):
         s += ' '.join(['%s="%s"'%(k,v) for (k,v) in self.attrs.items()])
         return s+">"
 
-def pusher(obj_scale=None,obj_mass=None,obj_damping=None,object_pos=(0.45, -0.05, -0.275),distr_scale=None, distr_mass=None, distr_damping=None, goal_pos=(0.45, -0.05, -0.3230), distractor_pos=(0.45,-0.05,-0.275), N_objects=1, mesh_file=None,mesh_file_path=None, distractor_mesh_file=None, friction=(.8, .1, .1)):
+def pusher(obj_scale=None,obj_mass=None,obj_damping=None,object_pos=(0.45, -0.05, -0.275),distr_scale=None, distr_mass=None, distr_damping=None, goal_pos=(0.45, -0.05, -0.3230), distractor_pos=(0.45,-0.05,-0.275), N_objects=1, mesh_file=None,mesh_file_path=None, distractor_mesh_file=None, friction=(.8, .1, .1), table_texture=None, distractor_texture=None, obj_texture=None):
     object_pos, goal_pos, distractor_pos, friction = list(object_pos), list(goal_pos), list(distractor_pos), list(friction)
     # For now, only supports one distractor
 
@@ -188,7 +188,10 @@ def pusher(obj_scale=None,obj_mass=None,obj_damping=None,object_pos=(0.45, -0.05
 
     worldbody = mjcmodel.root.worldbody()
     worldbody.light(diffuse=".5 .5 .5", pos="0 0 3", dir="0 0 -1")
-    worldbody.geom(name="table", type="plane", pos="0 0.5 -0.325", size="1 1 0.1", contype="1", conaffinity="1")
+    if table_texture:
+        worldbody.geom(name="table", material='table', type="plane", pos="0 0.5 -0.325", size="1 1 0.1", contype="1", conaffinity="1")
+    else:
+        worldbody.geom(name="table", type="plane", pos="0 0.5 -0.325", size="1 1 0.1", contype="1", conaffinity="1")
     r_shoulder_pan_link = worldbody.body(name="r_shoulder_pan_link", pos="0 -0.6 0")
     r_shoulder_pan_link.geom(name="e1", type="sphere", rgba="0.6 0.6 0.6 1", pos="-0.06 0.05 0.2", size="0.05")
     r_shoulder_pan_link.geom(name="e2", type="sphere", rgba="0.6 0.6 0.6 1", pos=" 0.06 0.05 0.2", size="0.05")
@@ -255,7 +258,10 @@ def pusher(obj_scale=None,obj_mass=None,obj_damping=None,object_pos=(0.45, -0.05
         else:
             # mesh = distractor.body(axisangle="1 0 0 1.57", pos="0 0 0") # axis angle might also need to be adjusted
             # TODO: do we need material here?
-            distractor.geom(conaffinity="0", contype="1", density=str(distr_density), mesh="distractor_mesh" , rgba="1 1 1 1", type="mesh")
+            if distractor_texture:
+                distractor.geom(material='distractor', conaffinity="0", contype="1", density=str(distr_density), mesh="distractor_mesh" , rgba="1 1 1 1", type="mesh")
+            else:
+                distractor.geom(conaffinity="0", contype="1", density=str(distr_density), mesh="distractor_mesh" , rgba="1 1 1 1", type="mesh")
             # distal = mesh.body(name="distal_10_%d" % i, pos="0 0 0")
             # distal.site(name="distractor_pos_%d" % i, pos="0 0 0", size="0.01")
         distractor.joint(name="distractor_slidey", type="slide", pos="0 0 0", axis="0 1 0", range="-10.3213 10.3", damping=distr_damping)
@@ -269,7 +275,10 @@ def pusher(obj_scale=None,obj_mass=None,obj_damping=None,object_pos=(0.45, -0.05
     else:
         # mesh = object.body(axisangle="1 0 0 1.57", pos="0 0 0") # axis angle might also need to be adjusted
         # TODO: do we need material here?
-        object.geom(conaffinity="0", contype="1", density=str(object_density), mesh="object_mesh", rgba="1 1 1 1", type="mesh")
+        if obj_texture:
+            object.geom(material='object', conaffinity="0", contype="1", density=str(object_density), mesh="object_mesh", rgba="1 1 1 1", type="mesh")
+        else:
+            object.geom(conaffinity="0", contype="1", density=str(object_density), mesh="object_mesh", rgba="1 1 1 1", type="mesh")
         # distal = mesh.body(name="distal_10", pos="0 0 0")
         # distal.site(name="obj_pos", pos="0 0 0", size="0.01")
     object.joint(name="obj_slidey", type="slide", pos="0 0 0", axis="0 1 0", range="-10.3213 10.3", damping=obj_damping)
@@ -281,9 +290,18 @@ def pusher(obj_scale=None,obj_mass=None,obj_damping=None,object_pos=(0.45, -0.05
     goal.joint(name="goal_slidex", type="slide", pos="0 0 0", axis="1 0 0", range="-10.3213 10.3", damping="0.5")
 
     asset = mjcmodel.root.asset()
+    if table_texture:
+        asset.texture(name='table', file=table_texture, type='2d')
+        asset.material(shininess='0.3', specular='1', name='table', rgba='0.9 0.9 0.9 1', texture='table')
     asset.mesh(file=mesh_file_path, name="object_mesh", scale=[object_scale]*3) # figure out the proper scale
     if distractor_mesh_file:
         asset.mesh(file=distractor_mesh_file, name="distractor_mesh", scale=[distr_scale]*3)
+        if distractor_texture:
+            asset.texture(name='distractor', file=distractor_texture)
+            asset.material(shininess='0.3', specular='1', name='distractor', rgba='0.9 0.9 0.9 1', texture='distractor')
+    if obj_texture:
+        asset.texture(name='object', file=obj_texture)
+        asset.material(shininess='0.3', specular='1', name='object', rgba='0.9 0.9 0.9 1', texture='object')
 
     actuator = mjcmodel.root.actuator()
     actuator.motor(joint="r_shoulder_pan_joint", ctrlrange="-2.0 2.0", ctrllimited="true")
