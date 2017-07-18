@@ -157,7 +157,7 @@ class MJCTreeNode(object):
         s += ' '.join(['%s="%s"'%(k,v) for (k,v) in self.attrs.items()])
         return s+">"
 
-def pusher(obj_scale=None,obj_mass=None,obj_damping=None,object_pos=(0.45, -0.05, -0.275),distr_scale=None, distr_mass=None, distr_damping=None, goal_pos=(0.45, -0.05, -0.3230), distractor_pos=(0.45,-0.05,-0.275), N_objects=1, mesh_file=None,mesh_file_path=None, distractor_mesh_file=None, friction=(.8, .1, .1), table_texture=None, distractor_texture=None, obj_texture=None):
+def pusher(obj_scale=None,obj_mass=None,obj_damping=None,object_pos=(0.45, -0.05, -0.275),distr_scale=None,actual_distr_scale=None, distr_mass=None, distr_damping=None, goal_pos=(0.45, -0.05, -0.3230), distractor_pos=(0.45,-0.05,-0.275), N_objects=1, mesh_file=None,mesh_file_path=None, distractor_mesh_file=None, friction=(.8, .1, .1), table_texture=None, distractor_texture=None, obj_texture=None):
     object_pos, goal_pos, distractor_pos, friction = list(object_pos), list(goal_pos), list(distractor_pos), list(friction)
     # For now, only supports one distractor
 
@@ -171,6 +171,7 @@ def pusher(obj_scale=None,obj_mass=None,obj_damping=None,object_pos=(0.45, -0.05
 
     if distractor_mesh_file:
         if distr_scale is None:
+            # not used if actual_distr_scale is set.
             distr_scale = random.uniform(0.5, 1.0)  # currently trying range of 0.5-1.0
         if distr_mass is None:
             distr_mass = random.uniform(0.1, 2.0)  # largest is 2.0, lowest is 0.1 I think
@@ -243,11 +244,12 @@ def pusher(obj_scale=None,obj_mass=None,obj_damping=None,object_pos=(0.45, -0.05
         vol, cog, inertia = distr_mesh_object.get_mass_properties()
         minx, maxx, miny, maxy, minz, maxz = find_mins_maxs(distr_mesh_object)
         max_length = max((maxx-minx),max((maxy-miny),(maxz-minz)))
-        distr_scale = distr_scale*0.0012 * (200.0 / max_length)
-        distr_density = distr_mass / (vol*distr_scale*distr_scale*distr_scale)
-        distractor_pos[0] -= distr_scale*(minx+maxx)/2.0
-        distractor_pos[1] -= distr_scale*(miny+maxy)/2.0
-        distractor_pos[2] = -0.324 - distr_scale*minz
+        if actual_distr_scale == None:
+            actual_distr_scale = distr_scale*0.0012 * (200.0 / max_length)
+        distr_density = distr_mass / (vol*actual_distr_scale*actual_distr_scale*actual_distr_scale)
+        distractor_pos[0] -= actual_distr_scale*(minx+maxx)/2.0
+        distractor_pos[1] -= actual_distr_scale*(miny+maxy)/2.0
+        distractor_pos[2] = -0.324 - actual_distr_scale*minz
 
     ## MAKE DISTRACTOR
     if distractor_mesh_file:
@@ -295,7 +297,7 @@ def pusher(obj_scale=None,obj_mass=None,obj_damping=None,object_pos=(0.45, -0.05
         asset.material(shininess='0.3', specular='1', name='table', rgba='0.9 0.9 0.9 1', texture='table')
     asset.mesh(file=mesh_file_path, name="object_mesh", scale=[object_scale]*3) # figure out the proper scale
     if distractor_mesh_file:
-        asset.mesh(file=distractor_mesh_file, name="distractor_mesh", scale=[distr_scale]*3)
+        asset.mesh(file=distractor_mesh_file, name="distractor_mesh", scale=[actual_distr_scale]*3)
         if distractor_texture:
             asset.texture(name='distractor', file=distractor_texture)
             asset.material(shininess='0.3', specular='1', name='distractor', rgba='0.9 0.9 0.9 1', texture='distractor')

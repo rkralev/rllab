@@ -41,7 +41,7 @@ RUN pip install Pillow
 
 # ========== OpenAI Gym ==========
 RUN apt-get -y install libgtk2.0-0
-RUN pip install gym
+RUN pip install --upgrade gym
 #RUN apt-get -y install ffmpeg
 RUN apt-get -y install libav-tools
 CMD alias ffmpeg="avconv"

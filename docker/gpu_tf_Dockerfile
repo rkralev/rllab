@@ -42,7 +42,7 @@ RUN apt-get build-dep -y python-pygame
 RUN pip install Pillow
 
 # ========== OpenAI Gym ==========
-RUN pip install gym
+RUN pip install --upgrade gym
 #RUN apt-get -y install ffmpeg
 RUN apt-get -y install libav-tools
 CMD alias ffmpeg="avconv"
