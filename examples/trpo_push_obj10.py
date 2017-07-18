@@ -30,7 +30,7 @@ else:
 class VG(VariantGenerator):
     @variant
     def seed(self):
-        return range(1,101) #102)
+        return range(901,1000) #102)
 
 
 variants = VG().variants()
