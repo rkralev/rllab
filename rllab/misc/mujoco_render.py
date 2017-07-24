@@ -157,9 +157,12 @@ class MJCTreeNode(object):
         s += ' '.join(['%s="%s"'%(k,v) for (k,v) in self.attrs.items()])
         return s+">"
 
-def pusher(obj_scale=None,obj_mass=None,obj_damping=None,object_pos=(0.45, -0.05, -0.275),distr_scale=None,actual_distr_scale=None, distr_mass=None, distr_damping=None, goal_pos=(0.45, -0.05, -0.3230), distractor_pos=(0.45,-0.05,-0.275), N_objects=1, mesh_file=None,mesh_file_path=None, distractor_mesh_file=None, friction=(.8, .1, .1), table_texture=None, distractor_texture=None, obj_texture=None):
+def pusher(obj_scale=None,obj_mass=None,obj_damping=None,object_pos=(0.45, -0.05, -0.275),distr_scale=None,actual_distr_scale=None, distr_mass=None, distr_damping=None, goal_pos=(0.45, -0.05, -0.3230), distractor_pos=(0.45,-0.05,-0.275), N_objects=1, mesh_file=None,mesh_file_path=None, distractor_mesh_file=None, distractor_mesh_file_path=None, friction=(.8, .1, .1), table_texture=None, distractor_texture=None, obj_texture=None):
     object_pos, goal_pos, distractor_pos, friction = list(object_pos), list(goal_pos), list(distractor_pos), list(friction)
     # For now, only supports one distractor
+
+    if distractor_mesh_file_path is None:
+        distractor_mesh_file_path = distractor_mesh_file
 
     if obj_scale is None:
         obj_scale = random.uniform(0.5, 1.0)  # currently trying range of 0.5-1.0
@@ -297,7 +300,7 @@ def pusher(obj_scale=None,obj_mass=None,obj_damping=None,object_pos=(0.45, -0.05
         asset.material(shininess='0.3', specular='1', name='table', rgba='0.9 0.9 0.9 1', texture='table')
     asset.mesh(file=mesh_file_path, name="object_mesh", scale=[object_scale]*3) # figure out the proper scale
     if distractor_mesh_file:
-        asset.mesh(file=distractor_mesh_file, name="distractor_mesh", scale=[actual_distr_scale]*3)
+        asset.mesh(file=distractor_mesh_file_path, name="distractor_mesh", scale=[actual_distr_scale]*3)
         if distractor_texture:
             asset.texture(name='distractor', file=distractor_texture)
             asset.material(shininess='0.3', specular='1', name='distractor', rgba='0.9 0.9 0.9 1', texture='distractor')
@@ -382,5 +385,5 @@ if __name__ == '__main__':
 
     env = gym.envs.make('Pusher-v0')
     for _ in range(100000):
-        env.render()
+        #env.render()
         time.sleep(0.01)
