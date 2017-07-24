@@ -18,19 +18,34 @@ class PusherEnv(MujocoEnv, Serializable):
     def __init__(self, *args, **kwargs):
         self.frame_skip = 5
         self.__class__.FILE = kwargs['xml_file']
+        if 'distractors' in kwargs:
+            self.include_distractors = kwargs['distractors']
+        else:
+            self.include_distractors = False
         #kwargs.pop('xml_file')
         super(PusherEnv, self).__init__(*args, **kwargs)
         self.frame_skip = 5
         Serializable.__init__(self, *args, **kwargs)
 
     def get_current_obs(self):
-        return np.concatenate([
-            self.model.data.qpos.flat[:7],
-            self.model.data.qvel.flat[:7],
-            self.get_body_com("tips_arm"),
-            self.get_body_com("object"),
-            self.get_body_com("goal"),
-        ])
+        if self.include_distractors:
+            return np.concatenate([
+                self.model.data.qpos.flat[:7],
+                self.model.data.qvel.flat[:7],
+                self.get_body_com("tips_arm"),
+                self.get_body_com("distractor"),
+                self.get_body_com("object"),
+                self.get_body_com("goal"),
+            ])
+        else:
+           return np.concatenate([
+                self.model.data.qpos.flat[:7],
+                self.model.data.qvel.flat[:7],
+                self.get_body_com("tips_arm"),
+                self.get_body_com("object"),
+                self.get_body_com("goal"),
+            ])
+
 
     #def get_body_xmat(self, body_name):
     #    idx = self.model.body_names.index(body_name)
@@ -68,6 +83,20 @@ class PusherEnv(MujocoEnv, Serializable):
             if np.linalg.norm(self.obj_pos - self.goal_pos) > 0.17:
                 break
 
+        if self.include_distractors:
+            if self.obj_pos[1] < 0:
+                y_range = [0.0, 0.2]
+            else:
+                y_range = [-0.2, 0.0]
+
+            while True:
+                self.distractor_pos = np.concatenate([
+                    np.random.uniform(low=-0.3, high=0, size=1),
+                    np.random.uniform(low=y_range[0], high=y_range[1], size=1)])
+                if np.linalg.norm(self.distractor_pos - self.goal_pos) > 0.17 and np.linalg.norm(self.obj_pos - self.distractor_pos) > 0.1:
+                    break
+            qpos[-6:-4,0] = self.distractor_pos
+
         qpos[-4:-2,0] = self.obj_pos
         qpos[-2:,0] = self.goal_pos
         qvel = self.init_qvel + np.random.uniform(low=-0.005,
@@ -78,8 +107,6 @@ class PusherEnv(MujocoEnv, Serializable):
         self.model._compute_subtree()
         self.model.forward()
 
-        #self.reset_mujoco(init_state)
-        #self.model.forward()
         self.current_com = self.model.data.com_subtree[0]
         self.dcom = np.zeros_like(self.current_com)
         return self.get_current_obs()
