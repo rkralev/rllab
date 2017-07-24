@@ -17,7 +17,7 @@ from rllab.misc.instrument import VariantGenerator, variant
 
 import glob
 import random
-local = False
+local = True
 
 DOCKER_CODE_DIR = "/root/code/rllab/"
 LOCAL_CODE_DIR = '/home/cfinn/code/rllab/'
@@ -30,7 +30,9 @@ else:
 class VG(VariantGenerator):
     @variant
     def seed(self):
-        return range(1,101) #102)
+        # 1003 is pretraining policy 3.
+        return [1000]
+        #return range(1,101) #102)
 
 
 variants = VG().variants()
@@ -38,41 +40,32 @@ variants = VG().variants()
 
 def run_task(v):
 
-    #random.seed(v['seed'])
-    #objs = glob.glob(DOCKER_CODE_DIR+'vendor/mujoco_models/*.stl')
-    #random_obj = random.choice(objs)
-    #random_scale = random.uniform(0.5, 1.0)
-    #random_mass = random.uniform(0.1, 2.0)
-    #random_damp = random.uniform(0.2, 5.0)
-    # Log experiment info
-    #exp_log_info = {'obj': random_obj, 'scale': random_scale, 'mass': random_mass, 'damp': random_damp}
-
-    #pusher_model = pusher(mesh_file=random_obj, obj_scale=random_scale,obj_mass=random_mass,obj_damping=random_damp)
-    #xml_filepath = DOCKER_CODE_DIR+'pusher.xml'  # Put it in exp dir, not here.
-    #pusher_model.save(xml_filepath)
     if local:
-        xml_filepath = DOCKER_CODE_DIR + 'vendor/local_mujoco_models/pusher' + str(v['seed']) + '.xml'
+        #xml_filepath = DOCKER_CODE_DIR + 'vendor/local_mujoco_models/pusher' + str(v['seed']) + '.xml'
+        xml_filepath = DOCKER_CODE_DIR + 'vendor/local_mujoco_models/ensure_woodtable_distractor_pusher' + str(v['seed']) + '.xml'
     else:
-        xml_filepath = DOCKER_CODE_DIR + 'vendor/mujoco_models/pusher' + str(v['seed']) + '.xml'
+        xml_filepath = DOCKER_CODE_DIR + 'vendor/mujoco_models/ensure_woodtable_distractor_pusher' + str(v['seed']) + '.xml'
     exp_log_info = {'xml': xml_filepath}
 
-    gym_env = PusherEnv(**{'xml_file':xml_filepath})
+    gym_env = PusherEnv(**{'xml_file': xml_filepath, 'distractors': True})
     #gym_env = GymEnv('Pusher-v0', force_reset=True, record_video=False)
     # TODO - this is hacky...
     #mujoco_env.MujocoEnv.__init__(gym_env.env.env.env, xml_filepath, 5)
     env = TfEnv(normalize(gym_env))
 
-    policy = GaussianMLPPolicy(
-        name="policy",
-        env_spec=env.spec,
-        hidden_sizes=(128, 128)
-    )
+    #policy = GaussianMLPPolicy(
+    #    name="policy",
+    #    env_spec=env.spec,
+    #    hidden_sizes=(128, 128)
+    #)
 
     baseline = LinearFeatureBaseline(env_spec=env.spec)
 
     algo = TRPO(
         env=env,
-        policy=policy,
+        policy=None, #policy,
+        #load_policy='/home/cfinn/code/rllab/data/local/rllab-fixed-push-experts/pretraining_policy3/itr_300.pkl',
+        load_policy='vendor/pretraining_policy3/itr_300.pkl',
         baseline=baseline,
         batch_size=100*500,
         max_path_length=100,
