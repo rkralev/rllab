@@ -60,7 +60,7 @@ if USE_DISTRACTORS_OR_TEXTURES:
           other_i = i-1
         obj, scale = get_object_stl('/home/cfinn/code/rllab/vendor/mujoco_models/pusher' + str(other_i) + '.xml')
         all_distr_objs.append(obj)
-        all_distr_objpaths.append( docker_path + obj[obj.index('vendor'):] )
+        all_distr_objpaths.append( docker_dir + obj[obj.index('vendor'):] )
         all_distr_scales.append(scale)
         #all_distr_objs.append(random.choice(objs))
         #all_distr_scales.append(random.uniform(0.5, 1.0))
