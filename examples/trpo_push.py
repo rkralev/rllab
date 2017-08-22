@@ -10,7 +10,7 @@ from rllab.envs.mujoco.pusher_env import PusherEnv
 
 #from gym.envs.mujoco.pusher import PusherEnv
 from rllab.envs.gym_env import GymEnv
-
+#test_trpo_push1
 def run_task(*_):
 
     env = TfEnv(normalize(GymEnv("Pusher-v0", force_reset=True, record_video=False)))
